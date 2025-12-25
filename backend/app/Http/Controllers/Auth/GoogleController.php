@@ -36,12 +36,46 @@ class GoogleController extends Controller
 		return $provider->redirectUrl($redirect)->redirect();
 	}
 
-	public function callbackLogin()
+	public function callbackLogin(Request $request)
 	{
+		// Check if user cancelled the OAuth flow
+		if ($request->has('error')) {
+			$error = $request->query('error');
+			\Log::info('Google OAuth cancelled or error: ' . $error);
+			
+			$isFrontendRequest = session('oauth_is_frontend', false);
+			session()->forget(['oauth_is_frontend', 'oauth_frontend_redirect']);
+			
+			if ($isFrontendRequest) {
+				$frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+				$redirectUrl = session('oauth_frontend_redirect') ?: ($frontendUrl . '/auth/login');
+				return redirect($redirectUrl . (str_contains($redirectUrl, '?') ? '&' : '?') . 'error=' . urlencode('Google sign-in was cancelled.'));
+			} else {
+				return redirect()->route('login')->with('error', 'Google sign-in was cancelled.');
+			}
+		}
+
 		$redirect = config('services.google.redirect', url('/oauth/google/callback'));
 		/** @var \Laravel\Socialite\Two\GoogleProvider $provider */
 		$provider = Socialite::driver('google');
-		$googleUser = $provider->redirectUrl($redirect)->stateless()->user();
+		
+		try {
+			$googleUser = $provider->redirectUrl($redirect)->stateless()->user();
+		} catch (\Exception $e) {
+			\Log::error('Google OAuth error: ' . $e->getMessage());
+			
+			$isFrontendRequest = session('oauth_is_frontend', false);
+			session()->forget(['oauth_is_frontend', 'oauth_frontend_redirect']);
+			
+			if ($isFrontendRequest) {
+				$frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+				$redirectUrl = session('oauth_frontend_redirect') ?: ($frontendUrl . '/auth/login');
+				return redirect($redirectUrl . (str_contains($redirectUrl, '?') ? '&' : '?') . 'error=' . urlencode('Failed to authenticate with Google. Please try again.'));
+			} else {
+				return redirect()->route('login')->with('error', 'Failed to authenticate with Google. Please try again.');
+			}
+		}
+		
 		$email = $googleUser->getEmail();
 
 		// Check if this is a frontend request (stored in session from redirectLogin)
@@ -95,12 +129,26 @@ class GoogleController extends Controller
 		return $provider->redirectUrl($resetRedirect)->redirect();
 	}
 
-	public function callbackReset()
+	public function callbackReset(Request $request)
 	{
+		// Check if user cancelled the OAuth flow
+		if ($request->has('error')) {
+			$error = $request->query('error');
+			\Log::info('Google OAuth reset cancelled or error: ' . $error);
+			return redirect()->route('password.forgot')->with('error', 'Google sign-in was cancelled.');
+		}
+
 		$redirect = config('services.google.redirect_reset', url('/oauth/google/reset/callback'));
 		/** @var \Laravel\Socialite\Two\GoogleProvider $provider */
 		$provider = Socialite::driver('google');
-		$googleUser = $provider->redirectUrl($redirect)->stateless()->user();
+		
+		try {
+			$googleUser = $provider->redirectUrl($redirect)->stateless()->user();
+		} catch (\Exception $e) {
+			\Log::error('Google OAuth reset error: ' . $e->getMessage());
+			return redirect()->route('password.forgot')->with('error', 'Failed to authenticate with Google. Please try again.');
+		}
+		
 		$email = $googleUser->getEmail();
 
 		// Only allow if buyer exists
