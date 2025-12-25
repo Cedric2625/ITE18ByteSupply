@@ -142,6 +142,7 @@
                 <i class="fas fa-eye"></i>
               </NuxtLink>
               <NuxtLink 
+                v-if="!isOrderLocked(order.shipping_status)"
                 :to="`/admin/orders/${order.id}/edit`" 
                 class="text-yellow-600 hover:text-yellow-900 transition-colors cursor-pointer inline-block"
                 title="Edit"
@@ -153,6 +154,14 @@
               >
                 <i class="fas fa-edit"></i>
               </NuxtLink>
+              <span 
+                v-else
+                class="text-gray-400 cursor-not-allowed inline-block"
+                title="This order cannot be edited (Cancelled or Completed)"
+                style="pointer-events: none; min-width: 20px; min-height: 20px; padding: 4px;"
+              >
+                <i class="fas fa-lock"></i>
+              </span>
               <button 
                 @click="() => showDeleteConfirm(order)"
                 class="text-red-600 hover:text-red-900 transition-colors"
@@ -491,6 +500,10 @@ const formatDate = (date: string) => {
   if (!date) return ''
   const d = new Date(date)
   return d.toLocaleDateString()
+}
+
+const isOrderLocked = (status: string) => {
+  return status === 'cancelled' || status === 'canceled' || status === 'completed'
 }
 </script>
 

@@ -148,9 +148,38 @@ class OrderController extends Controller
      */
     public function update(UpdateOrderRequest $request, Order $order): JsonResponse|RedirectResponse
     {
+        // Check if order is locked (cancelled or completed)
+        $currentStatus = $order->shipping_status;
+        if ($currentStatus === 'cancelled' || $currentStatus === 'canceled' || $currentStatus === 'completed') {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.',
+                    'status' => 'error'
+                ], 422);
+            }
+            return redirect()->back()
+                ->with('error', 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.');
+        }
+
         $validated = $request->validated();
         $selectedComponents = $validated['selected_components'] ?? null;
         unset($validated['selected_components']);
+
+        // Check if trying to update to cancelled or completed from a locked status
+        if (isset($validated['shipping_status'])) {
+            $newStatus = $validated['shipping_status'];
+            if (($newStatus === 'cancelled' || $newStatus === 'canceled' || $newStatus === 'completed') && 
+                ($currentStatus === 'cancelled' || $currentStatus === 'canceled' || $currentStatus === 'completed')) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'message' => 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.',
+                        'status' => 'error'
+                    ], 422);
+                }
+                return redirect()->back()
+                    ->with('error', 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.');
+            }
+        }
 
         try {
             DB::beginTransaction();

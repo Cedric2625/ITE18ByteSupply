@@ -156,8 +156,20 @@
       </div>
     </div>
 
+    <!-- Locked Order Message -->
+    <div v-if="isOrderLocked" class="mb-6 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
+      <div class="flex items-center">
+        <i class="fas fa-lock mr-2"></i>
+        <span class="font-semibold">This order cannot be edited.</span>
+      </div>
+      <p class="mt-2 text-sm">
+        Orders with status "<strong>{{ formatStatus(order?.shipping_status) }}</strong>" cannot be modified. 
+        Once an order is marked as <strong>Cancelled</strong> or <strong>Completed</strong>, it becomes locked and cannot be updated.
+      </p>
+    </div>
+
     <!-- Single Edit Form - Only Shipping Status is Editable -->
-    <form @submit.prevent="handleSubmit" class="space-y-6 bg-white p-6 rounded-lg shadow">
+    <form @submit.prevent="handleSubmit" class="space-y-6 bg-white p-6 rounded-lg shadow" :class="{ 'opacity-50 pointer-events-none': isOrderLocked }">
       <!-- Shipping Status - Only editable field -->
       <div>
         <Label for="shipping_status" value="Shipping Status *" />
@@ -168,7 +180,7 @@
             v-model="form.shipping_status"
             class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 py-2 px-3"
             required
-            :disabled="loading"
+            :disabled="loading || isOrderLocked"
           >
             <option value="" disabled>-- Select Shipping Status --</option>
             <option 
@@ -224,11 +236,11 @@
         </NuxtLink>
         <Button 
           type="submit" 
-          :disabled="loading || !form.shipping_status"
+          :disabled="loading || !form.shipping_status || isOrderLocked"
           class="px-6 py-3"
         >
           <i class="fas fa-save mr-2"></i>
-          {{ loading ? 'UPDATING...' : 'UPDATE SHIPPING STATUS' }}
+          {{ loading ? 'UPDATING...' : isOrderLocked ? 'ORDER LOCKED' : 'UPDATE SHIPPING STATUS' }}
         </Button>
       </div>
     </form>
@@ -351,6 +363,12 @@ const errors = ref<Record<string, string>>({})
 const originalShippingStatus = ref<string>('')
 const showBackwardStatusModal = ref(false)
 
+// Check if order is locked (cancelled or completed)
+const isOrderLocked = computed(() => {
+  const status = order.value?.shipping_status || originalShippingStatus.value || ''
+  return status === 'cancelled' || status === 'canceled' || status === 'completed'
+})
+
 // Define status progression order (higher number = later in progression)
 const getStatusOrder = (status: string): number => {
   const statusOrder: Record<string, number> = {
@@ -366,13 +384,18 @@ const getStatusOrder = (status: string): number => {
 
 // Check if new status is backward from current status
 const isStatusBackward = (currentStatus: string, newStatus: string): boolean => {
-  // If current status is canceled, only allow keeping it as canceled
-  if (currentStatus === 'canceled') {
+  // If current status is canceled or cancelled, only allow keeping it as canceled
+  if (currentStatus === 'canceled' || currentStatus === 'cancelled') {
     return newStatus !== 'canceled'
   }
   
-  // If new status is canceled, it's allowed (can cancel from any status)
-  if (newStatus === 'canceled') {
+  // If current status is completed, cannot change to any other status
+  if (currentStatus === 'completed') {
+    return newStatus !== 'completed'
+  }
+  
+  // If new status is canceled, it's allowed (can cancel from any status) unless already completed
+  if (newStatus === 'canceled' && currentStatus !== 'completed') {
     return false
   }
   
@@ -397,12 +420,22 @@ const isStatusDisabled = (status: string): boolean => {
     return false
   }
   
+  // If order is locked (cancelled or completed), disable all options
+  if (isOrderLocked.value) {
+    return true
+  }
+  
   // If current status is canceled, disable all except canceled
-  if (currentStatus === 'canceled') {
+  if (currentStatus === 'canceled' || currentStatus === 'cancelled') {
     return status !== 'canceled'
   }
   
-  // Canceled can always be selected (can cancel from any status)
+  // If current status is completed, disable all options
+  if (currentStatus === 'completed') {
+    return true
+  }
+  
+  // Canceled can always be selected (can cancel from any status) unless order is locked
   if (status === 'canceled') {
     return false
   }
@@ -479,6 +512,13 @@ const handleSubmit = async () => {
   errors.value = {}
 
   try {
+    // Check if order is locked (cancelled or completed)
+    if (isOrderLocked.value) {
+      errors.value = { general: 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.' }
+      loading.value = false
+      return
+    }
+
     // Validate required fields
     if (!form.shipping_status || form.shipping_status === '') {
       errors.value = { shipping_status: 'Please select a shipping status.' }
@@ -493,6 +533,13 @@ const handleSubmit = async () => {
       loading.value = false
       // Reset form to original status
       form.shipping_status = currentStatus
+      return
+    }
+
+    // Prevent updating to cancelled or completed if already locked
+    if (currentStatus === 'cancelled' || currentStatus === 'canceled' || currentStatus === 'completed') {
+      errors.value = { general: 'This order cannot be edited. Orders with status "Cancelled" or "Completed" are locked and cannot be modified.' }
+      loading.value = false
       return
     }
 
